@@ -1,0 +1,13 @@
+// $Id$
+// vim:ft=javascript
+
+// If your extension references something external, use ARG_WITH
+// ARG_WITH("ppya", "for ppya support", "no");
+
+// Otherwise, use ARG_ENABLE
+// ARG_ENABLE("ppya", "enable ppya support", "no");
+
+if (PHP_PPYA != "no") {
+	EXTENSION("ppya", "ppya.c");
+}
+
