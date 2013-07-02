@@ -133,7 +133,18 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 {
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
 	char * out_buffer = malloc(102400);
-	spprintf(&out_buffer,102400,"\2    %d.%d    %d.%d    %ld    %ld    %ld    %ld    %ld",(int)PPYA_G(usage_end).ru_utime.tv_sec,(int)PPYA_G(usage_end).ru_utime.tv_usec,(int)PPYA_G(usage_end).ru_stime.tv_sec,(int)PPYA_G(usage_end).ru_stime.tv_usec,PPYA_G(usage_end).ru_maxrss,PPYA_G(usage_end).ru_inblock,PPYA_G(usage_end).ru_oublock,PPYA_G(usage_end).ru_msgsnd,PPYA_G(usage_end).ru_msgrcv);
+	spprintf(&out_buffer,102400,"\2    %d.%d    %d.%d    %ld    %ld    %ld    %ld    %ld    %s",
+			(int)(PPYA_G(usage_end).ru_utime.tv_sec-PPYA_G(usage_start).ru_utime.tv_sec),
+			(int)(PPYA_G(usage_end).ru_utime.tv_usec-PPYA_G(usage_start).ru_utime.tv_usec),
+			(int)(PPYA_G(usage_end).ru_stime.tv_sec-PPYA_G(usage_start).ru_stime.tv_sec),
+			(int)(PPYA_G(usage_end).ru_stime.tv_usec-PPYA_G(usage_start).ru_stime.tv_usec),
+			PPYA_G(usage_end).ru_maxrss-PPYA_G(usage_start).ru_maxrss,
+			PPYA_G(usage_end).ru_inblock-PPYA_G(usage_start).ru_inblock,
+			PPYA_G(usage_end).ru_oublock-PPYA_G(usage_start).ru_oublock,
+			PPYA_G(usage_end).ru_msgsnd-PPYA_G(usage_start).ru_msgsnd,
+			PPYA_G(usage_end).ru_msgrcv-PPYA_G(usage_start).ru_msgrcv,
+			PPYA_G(web_info)
+	);
 	sendto(PPYA_G(sockfd),out_buffer,strlen(out_buffer),0,(struct sockaddr *)&PPYA_G(servaddr),sizeof(PPYA_G(servaddr)));
 	efree(PPYA_G(web_info));
 	return SUCCESS;
