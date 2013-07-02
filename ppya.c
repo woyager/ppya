@@ -26,10 +26,9 @@
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_ppya.h"
+#include "SAPI.h"
 
-/* If you declare any globals in php_ppya.h uncomment this:
 ZEND_DECLARE_MODULE_GLOBALS(ppya)
-*/
 
 /* True global resources - no need for thread safety here */
 static int le_ppya;
@@ -70,12 +69,10 @@ ZEND_GET_MODULE(ppya)
 
 /* {{{ PHP_INI
  */
-/* Remove comments and fill if you need to have entries in php.ini
 PHP_INI_BEGIN()
-    STD_PHP_INI_ENTRY("ppya.global_value",      "42", PHP_INI_ALL, OnUpdateLong, global_value, zend_ppya_globals, ppya_globals)
-    STD_PHP_INI_ENTRY("ppya.global_string", "foobar", PHP_INI_ALL, OnUpdateString, global_string, zend_ppya_globals, ppya_globals)
+    STD_PHP_INI_ENTRY("ppya.udp_host", "127.0.0.1", PHP_INI_ALL, OnUpdateString, udp_host, zend_ppya_globals, ppya_globals)
+    STD_PHP_INI_ENTRY("ppya.udp_port","11111",PHP_INI_ALL,OnUpdateLong, udp_port, zend_ppya_globals, ppya_globals)
 PHP_INI_END()
-*/
 /* }}} */
 
 /* {{{ php_ppya_init_globals
@@ -93,9 +90,11 @@ static void php_ppya_init_globals(zend_ppya_globals *ppya_globals)
  */
 PHP_MINIT_FUNCTION(ppya)
 {
-	/* If you have INI entries, uncomment these lines 
 	REGISTER_INI_ENTRIES();
-	*/
+	PPYA_G(sockfd)=socket(AF_INET,SOCK_DGRAM,0);
+	PPYA_G(servaddr).sin_family = AF_INET;
+	PPYA_G(servaddr).sin_addr.s_addr=inet_addr(PPYA_G(udp_host));
+	PPYA_G(servaddr).sin_port=htons(PPYA_G(udp_port));
 	return SUCCESS;
 }
 /* }}} */
@@ -104,9 +103,7 @@ PHP_MINIT_FUNCTION(ppya)
  */
 PHP_MSHUTDOWN_FUNCTION(ppya)
 {
-	/* uncomment this line if you have INI entries
 	UNREGISTER_INI_ENTRIES();
-	*/
 	return SUCCESS;
 }
 /* }}} */
@@ -116,6 +113,15 @@ PHP_MSHUTDOWN_FUNCTION(ppya)
  */
 PHP_RINIT_FUNCTION(ppya)
 {
+	PPYA_G(web_info)=emalloc(2048);
+	*PPYA_G(web_info)=0;
+	if (strncmp(sapi_module.name,"apache",5)==0){
+        	char* hostname = sapi_getenv("HTTP_HOST", 512 TSRMLS_CC);
+                char* uri = sapi_getenv("REQUEST_URI", 512 TSRMLS_CC);
+                char* reqid = sapi_getenv("HTTP_X_REQUEST_ID", 512 TSRMLS_CC);
+                spprintf(&(PPYA_G(web_info)),2048,"%s    %s    %s",reqid,hostname,uri);
+        }
+	getrusage(RUSAGE_SELF,&(PPYA_G(usage_start)));
 	return SUCCESS;
 }
 /* }}} */
@@ -125,6 +131,11 @@ PHP_RINIT_FUNCTION(ppya)
  */
 PHP_RSHUTDOWN_FUNCTION(ppya)
 {
+	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
+	char * out_buffer = malloc(102400);
+	spprintf(&out_buffer,102400,"\2    %d.%d    %d.%d    %ld    %ld    %ld    %ld    %ld",(int)PPYA_G(usage_end).ru_utime.tv_sec,(int)PPYA_G(usage_end).ru_utime.tv_usec,(int)PPYA_G(usage_end).ru_stime.tv_sec,(int)PPYA_G(usage_end).ru_stime.tv_usec,PPYA_G(usage_end).ru_maxrss,PPYA_G(usage_end).ru_inblock,PPYA_G(usage_end).ru_oublock,PPYA_G(usage_end).ru_msgsnd,PPYA_G(usage_end).ru_msgrcv);
+	sendto(PPYA_G(sockfd),out_buffer,strlen(out_buffer),0,(struct sockaddr *)&PPYA_G(servaddr),sizeof(PPYA_G(servaddr)));
+	efree(PPYA_G(web_info));
 	return SUCCESS;
 }
 /* }}} */
@@ -137,9 +148,7 @@ PHP_MINFO_FUNCTION(ppya)
 	php_info_print_table_header(2, "ppya support", "enabled");
 	php_info_print_table_end();
 
-	/* Remove comments if you have entries in php.ini
 	DISPLAY_INI_ENTRIES();
-	*/
 }
 /* }}} */
 

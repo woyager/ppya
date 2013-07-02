@@ -18,6 +18,12 @@
 
 /* $Id$ */
 
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #ifndef PHP_PPYA_H
 #define PHP_PPYA_H
 
@@ -44,15 +50,15 @@ PHP_MINFO_FUNCTION(ppya);
 
 PHP_FUNCTION(confirm_ppya_compiled);	/* For testing, remove later. */
 
-/* 
-  	Declare any global variables you may need between the BEGIN
-	and END macros here:     
-
 ZEND_BEGIN_MODULE_GLOBALS(ppya)
-	long  global_value;
-	char *global_string;
+	signed long udp_port;
+	char * udp_host;
+	int sockfd;
+	struct sockaddr_in servaddr;
+	char * web_info;
+	struct rusage usage_start;
+	struct rusage usage_end;
 ZEND_END_MODULE_GLOBALS(ppya)
-*/
 
 /* In every utility function you add that needs to use variables 
    in php_ppya_globals, call TSRMLS_FETCH(); after declaring other 
