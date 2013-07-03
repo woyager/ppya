@@ -23,6 +23,10 @@
 #include <netinet/in.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include "php.h"
+#include "php_ini.h"
+#include "ext/standard/info.h"
+#include "SAPI.h"
 
 #ifndef PHP_PPYA_H
 #define PHP_PPYA_H
@@ -61,6 +65,10 @@ ZEND_BEGIN_MODULE_GLOBALS(ppya)
 	char host[255];
 	struct timeval tv_start;
 	struct timeval tv_end;
+	char * internal_usage;
+	zend_op_array * (*_zend_compile_file) (zend_file_handle *file_handle, int type TSRMLS_DC);
+	zend_op_array * (*_zend_compile_string) (zval *source_string, char *filename TSRMLS_DC);
+	unsigned long compile_time;
 ZEND_END_MODULE_GLOBALS(ppya)
 
 /* In every utility function you add that needs to use variables 
@@ -90,3 +98,6 @@ ZEND_END_MODULE_GLOBALS(ppya)
  * vim600: noet sw=4 ts=4 fdm=marker
  * vim<600: noet sw=4 ts=4
  */
+
+zend_op_array* ppya_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC);
+zend_op_array* ppya_compile_string(zval *source_string, char *filename TSRMLS_DC);

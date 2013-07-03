@@ -22,11 +22,7 @@
 #include "config.h"
 #endif
 
-#include "php.h"
-#include "php_ini.h"
-#include "ext/standard/info.h"
 #include "php_ppya.h"
-#include "SAPI.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(ppya)
 
@@ -96,6 +92,10 @@ PHP_MINIT_FUNCTION(ppya)
 	PPYA_G(servaddr).sin_addr.s_addr=inet_addr(PPYA_G(udp_host));
 	PPYA_G(servaddr).sin_port=htons(PPYA_G(udp_port));
 	gethostname(PPYA_G(host),255);
+	PPYA_G(_zend_compile_file) = zend_compile_file;
+	zend_compile_file  = ppya_compile_file;
+	PPYA_G(_zend_compile_string) = zend_compile_string;
+	zend_compile_string = ppya_compile_string;
 	return SUCCESS;
 }
 /* }}} */
@@ -122,8 +122,10 @@ PHP_RINIT_FUNCTION(ppya)
                 char* reqid = sapi_getenv("HTTP_X_REQUEST_ID", 512 TSRMLS_CC);
                 spprintf(&(PPYA_G(web_info)),2048,"%s    %s    %s",reqid,hostname,uri);
         }
+	PPYA_G(internal_usage)=emalloc(10240000);
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_start)));
 	gettimeofday(&(PPYA_G(tv_start)),NULL);
+	PPYA_G(compile_time)=0;
 	return SUCCESS;
 }
 /* }}} */
@@ -134,10 +136,10 @@ PHP_RINIT_FUNCTION(ppya)
 PHP_RSHUTDOWN_FUNCTION(ppya)
 {
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
-	char * out_buffer = malloc(102400);
+	char * out_buffer = malloc(10240000);
 	gettimeofday(&(PPYA_G(tv_end)),NULL);
-	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw
-	spprintf(&out_buffer,102400,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s",
+	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw compile_time web_info internal_usage
+	spprintf(&out_buffer,10240000,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s\n%s",
 			(int)PPYA_G(tv_end).tv_sec,
 			PPYA_G(host),
 			(int)(PPYA_G(tv_end).tv_sec-PPYA_G(tv_start).tv_sec)*1000000+(int)(PPYA_G(tv_end).tv_usec-PPYA_G(tv_start).tv_usec),
@@ -150,10 +152,13 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 			PPYA_G(usage_end).ru_msgrcv-PPYA_G(usage_start).ru_msgrcv,
 			PPYA_G(usage_end).ru_nvcsw-PPYA_G(usage_start).ru_nvcsw,
 			PPYA_G(usage_end).ru_nivcsw-PPYA_G(usage_start).ru_nivcsw,
-			PPYA_G(web_info)
+			PPYA_G(compile_time),
+			PPYA_G(web_info),
+			PPYA_G(internal_usage)
 	);
 	sendto(PPYA_G(sockfd),out_buffer,strlen(out_buffer),0,(struct sockaddr *)&PPYA_G(servaddr),sizeof(PPYA_G(servaddr)));
 	efree(PPYA_G(web_info));
+	efree(PPYA_G(internal_usage));
 	return SUCCESS;
 }
 /* }}} */
@@ -207,3 +212,57 @@ PHP_FUNCTION(confirm_ppya_compiled)
  * vim600: noet sw=4 ts=4 fdm=marker
  * vim<600: noet sw=4 ts=4
  */
+
+ZEND_DLEXPORT zend_op_array* ppya_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC) {
+
+	const char     *filename;
+	char           *func;
+	int             len;
+	zend_op_array  *ret;
+	unsigned long  comp_time;
+
+
+	filename = file_handle->filename;
+	len      = strlen("load") + strlen(filename) + 3;
+	func      = (char *)emalloc(len);
+	snprintf(func, len, "load::%s", filename);
+
+	struct timeval start, end;
+
+	gettimeofday(&start,NULL);
+	ret = PPYA_G(_zend_compile_file)(file_handle, type TSRMLS_CC);
+	gettimeofday(&end,NULL);
+
+	comp_time = (end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+	PPYA_G(compile_time) += comp_time;
+
+	spprintf(&(PPYA_G(internal_usage)),10240000,"%s%s::%ld\n",PPYA_G(internal_usage),func,comp_time);
+
+	efree(func);
+	return ret;
+}
+
+ZEND_DLEXPORT zend_op_array* ppya_compile_string(zval *source_string, char *filename TSRMLS_DC) {
+
+	char          *func;
+	int            len;
+	zend_op_array *ret;
+	unsigned long  comp_time;
+	struct timeval start,end;
+
+	len  = strlen("eval") + strlen(filename) + 3;
+	func = (char *)emalloc(len);
+	snprintf(func, len, "eval::%s", filename);
+
+	gettimeofday(&start,NULL);
+	ret = PPYA_G(_zend_compile_string)(source_string, filename TSRMLS_CC);
+	gettimeofday(&end,NULL);
+
+	comp_time=(end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+	PPYA_G(compile_time) += comp_time;
+
+	spprintf(&(PPYA_G(internal_usage)),10240000,"%s%s::%ld\n",PPYA_G(internal_usage),func,comp_time);
+
+	efree(func);
+	return ret;
+}
