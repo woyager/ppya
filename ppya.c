@@ -103,6 +103,7 @@ PHP_MINIT_FUNCTION(ppya)
 	PPYA_G(_zend_execute_ex) = zend_execute_ex;
 	zend_execute_ex  = ppya_execute_ex;
 #endif
+	PPYA_G(_zend_execute_internal) = zend_execute_internal;
 	return SUCCESS;
 }
 /* }}} */
@@ -130,6 +131,7 @@ PHP_RINIT_FUNCTION(ppya)
                 spprintf(&(PPYA_G(web_info)),2048,"%s    %s    %s",reqid,hostname,uri);
         }
 	PPYA_G(internal_usage)=emalloc(10240000);
+	*PPYA_G(internal_usage)=0;
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_start)));
 	gettimeofday(&(PPYA_G(tv_start)),NULL);
 	PPYA_G(compile_time)=0;
@@ -227,7 +229,9 @@ PHP_FUNCTION(confirm_ppya_compiled)
 void internal_concat(char* app_string){
 	size_t len_orig = strlen(PPYA_G(internal_usage));
 	size_t len_app  = strlen(app_string);
-	memcpy(PPYA_G(internal_usage)+len_orig,app_string,len_app+1);
+	if (len_orig+len_app+1 < 10240000){
+		memcpy(PPYA_G(internal_usage)+len_orig,app_string,len_app+1);
+	}
 }
 
 ZEND_DLEXPORT zend_op_array* ppya_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC) {
@@ -413,7 +417,73 @@ ZEND_DLEXPORT void ppya_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
 
 	spprintf(&temp_buf,10240,"%s::%ld\n",func,exec_time);
 
+	internal_concat(temp_buf);
+
 	efree(temp_buf);
 	efree(func);
 }
+
+#undef EX
+#define EX(element) ((execute_data)->element)
+
+#if PHP_VERSION_ID < 50500
+#define EX_T(offset) (*(temp_variable *)((char *) EX(Ts) + offset))
+ZEND_DLEXPORT void ppya_execute_internal(zend_execute_data *execute_data, int ret TSRMLS_DC) {
+#else
+#define EX_T(offset) (*EX_TMP_VAR(execute_data, offset))
+ZEND_DLEXPORT void ppya_execute_internal(zend_execute_data *execute_data, struct _zend_fcall_info *fci, int ret TSRMLS_DC) {
+#endif
+
+	zend_execute_data *current_data;
+	char             *func = NULL;
+	current_data = EG(current_execute_data);
+	struct timeval start, end;
+	unsigned long exec_time;
+
+	func = ppya_get_function_name(current_data->op_array TSRMLS_CC);
+
+	if (func) {
+		gettimeofday(&start,NULL);
+	}
+
+	if (!PPYA_G(_zend_execute_internal)) {
+		/* no old override to begin with. so invoke the builtin's implementation  */
+		zend_op *opline = EX(opline);
+#if ZEND_EXTENSION_API_NO >= 220100525
+		temp_variable *retvar = &EX_T(opline->result.var);
+		((zend_internal_function *) EX(function_state).function)->handler(
+                       opline->extended_value,
+                       retvar->var.ptr,
+                       (EX(function_state).function->common.fn_flags & ZEND_ACC_RETURN_REFERENCE) ?
+                       &retvar->var.ptr:NULL,
+                       EX(object), ret TSRMLS_CC);
+#else
+		((zend_internal_function *) EX(function_state).function)->handler(
+                       opline->extended_value,
+                       EX_T(opline->result.u.var).var.ptr,
+                       EX(function_state).function->common.return_reference ?
+                       &EX_T(opline->result.u.var).var.ptr:NULL,
+                       EX(object), ret TSRMLS_CC);
+#endif
+	} else {
+    /* call the old override */
+#if PHP_VERSION_ID < 50500
+		PPYA_G(_zend_execute_internal)(execute_data, ret TSRMLS_CC);
+#else
+		PPYA_G(_zend_execute_internal)(execute_data, fci, ret TSRMLS_CC);
+#endif
+	}
+
+	if (func) {
+		char * temp_buf = emalloc(10240);
+		gettimeofday(&end,NULL);
+		exec_time=(end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+		spprintf(&temp_buf,10240,"%s::%ld\n",func,exec_time);
+		internal_concat(temp_buf);
+		efree(temp_buf);
+	}
+	efree(func);
+
+}
+
 

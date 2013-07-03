@@ -115,3 +115,8 @@ void ppya_execute (zend_op_array *ops TSRMLS_DC);
 void ppya_execute_ex (zend_execute_data *execute_data TSRMLS_DC);
 #endif
 
+#if PHP_VERSION_ID < 50500
+void ppya_execute_internal(zend_execute_data *execute_data, int ret TSRMLS_DC);
+#else
+void ppya_execute_internal(zend_execute_data *execute_data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
+#endif
