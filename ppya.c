@@ -96,6 +96,13 @@ PHP_MINIT_FUNCTION(ppya)
 	zend_compile_file  = ppya_compile_file;
 	PPYA_G(_zend_compile_string) = zend_compile_string;
 	zend_compile_string = ppya_compile_string;
+#if PHP_VERSION_ID < 50500
+	PPYA_G(_zend_execute) = zend_execute;
+	zend_execute  = ppya_execute;
+#else
+	PPYA_G(_zend_execute_ex) = zend_execute_ex;
+	zend_execute_ex  = ppya_execute_ex;
+#endif
 	return SUCCESS;
 }
 /* }}} */
@@ -126,6 +133,7 @@ PHP_RINIT_FUNCTION(ppya)
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_start)));
 	gettimeofday(&(PPYA_G(tv_start)),NULL);
 	PPYA_G(compile_time)=0;
+	PPYA_G(execute_time)=0;
 	return SUCCESS;
 }
 /* }}} */
@@ -138,8 +146,8 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
 	char * out_buffer = malloc(10240000);
 	gettimeofday(&(PPYA_G(tv_end)),NULL);
-	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss zend_memory zend_peak inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw compile_time web_info internal_usage
-	spprintf(&out_buffer,10240000,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s\n%s",
+	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss zend_memory zend_peak inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw compile_time execute_time web_info internal_usage
+	spprintf(&out_buffer,10240000,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s\n%s",
 			(int)PPYA_G(tv_end).tv_sec,
 			PPYA_G(host),
 			(int)(PPYA_G(tv_end).tv_sec-PPYA_G(tv_start).tv_sec)*1000000+(int)(PPYA_G(tv_end).tv_usec-PPYA_G(tv_start).tv_usec),
@@ -155,6 +163,7 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 			PPYA_G(usage_end).ru_nvcsw-PPYA_G(usage_start).ru_nvcsw,
 			PPYA_G(usage_end).ru_nivcsw-PPYA_G(usage_start).ru_nivcsw,
 			PPYA_G(compile_time),
+			PPYA_G(execute_time),
 			PPYA_G(web_info),
 			PPYA_G(internal_usage)
 	);
@@ -215,13 +224,21 @@ PHP_FUNCTION(confirm_ppya_compiled)
  * vim<600: noet sw=4 ts=4
  */
 
+void internal_concat(char* app_string){
+	size_t len_orig = strlen(PPYA_G(internal_usage));
+	size_t len_app  = strlen(app_string);
+	memcpy(PPYA_G(internal_usage)+len_orig,app_string,len_app+1);
+}
+
 ZEND_DLEXPORT zend_op_array* ppya_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC) {
 
 	const char     *filename;
 	char           *func;
 	int             len;
 	zend_op_array  *ret;
-	unsigned long  comp_time;
+	unsigned long  comp_time=0;
+
+	char* temp_buf = emalloc(10240);
 
 
 	filename = file_handle->filename;
@@ -238,9 +255,12 @@ ZEND_DLEXPORT zend_op_array* ppya_compile_file(zend_file_handle *file_handle, in
 	comp_time = (end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
 	PPYA_G(compile_time) += comp_time;
 
-	spprintf(&(PPYA_G(internal_usage)),10240000,"%s%s::%ld\n",PPYA_G(internal_usage),func,comp_time);
+	spprintf(&temp_buf,10240,"%s::%ld\n",func,comp_time);
+
+	internal_concat(temp_buf);
 
 	efree(func);
+	efree(temp_buf);
 	return ret;
 }
 
@@ -249,8 +269,10 @@ ZEND_DLEXPORT zend_op_array* ppya_compile_string(zval *source_string, char *file
 	char          *func;
 	int            len;
 	zend_op_array *ret;
-	unsigned long  comp_time;
+	unsigned long  comp_time=0;
 	struct timeval start,end;
+
+	char * temp_buf = emalloc(10240);
 
 	len  = strlen("eval") + strlen(filename) + 3;
 	func = (char *)emalloc(len);
@@ -263,8 +285,135 @@ ZEND_DLEXPORT zend_op_array* ppya_compile_string(zval *source_string, char *file
 	comp_time=(end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
 	PPYA_G(compile_time) += comp_time;
 
-	spprintf(&(PPYA_G(internal_usage)),10240000,"%s%s::%ld\n",PPYA_G(internal_usage),func,comp_time);
+	spprintf(&temp_buf,10240,"%s::%ld\n",func,comp_time);
+
+	internal_concat(temp_buf);
 
 	efree(func);
+	efree(temp_buf);
 	return ret;
 }
+
+static char *ppya_get_function_name(zend_op_array *ops TSRMLS_DC) {
+	zend_execute_data *data;
+	const char        *func = NULL;
+	const char        *cls = NULL;
+	char              *ret = NULL;
+	int                len;
+	zend_function      *curr_func;
+
+	data = EG(current_execute_data);
+
+	if (data) {
+		curr_func = data->function_state.function;
+		func = curr_func->common.function_name;
+
+		if (func) {
+			if (curr_func->common.scope) {
+				cls = curr_func->common.scope->name;
+			} else if (data->object) {
+				cls = Z_OBJCE(*data->object)->name;
+			}
+
+			if (cls) {
+				len = strlen(cls) + strlen(func) + 10;
+				ret = (char*)emalloc(len);
+				snprintf(ret, len, "%s::%s", cls, func);
+			} else {
+				ret = estrdup(func);
+			}
+		} else {
+			long     curr_op;
+			int      add_filename = 0;
+
+#if ZEND_EXTENSION_API_NO >= 220100525
+			curr_op = data->opline->extended_value;
+#else
+			curr_op = data->opline->op2.u.constant.value.lval;
+#endif
+
+			switch (curr_op) {
+				case ZEND_EVAL:
+					func = "eval";
+					break;
+				case ZEND_INCLUDE:
+					func = "include";
+					add_filename = 1;
+					break;
+				case ZEND_REQUIRE:
+					func = "require";
+					add_filename = 1;
+					break;
+				case ZEND_INCLUDE_ONCE:
+					func = "include_once";
+					add_filename = 1;
+					break;
+				case ZEND_REQUIRE_ONCE:
+					func = "require_once";
+					add_filename = 1;
+					break;
+				default:
+					func = "???_op";
+					break;
+			}
+
+			if (add_filename){
+				const char *filename;
+				int   len;
+				filename = (curr_func->op_array).filename;
+				len      = strlen("run_init") + strlen(filename) + 3;
+				ret      = (char *)emalloc(len);
+				snprintf(ret, len, "run_init::%s", filename);
+			} else {
+				ret = estrdup(func);
+			}
+		}
+	}
+	return ret;
+}
+
+
+
+#if PHP_VERSION_ID < 50500
+ZEND_DLEXPORT void ppya_execute (zend_op_array *ops TSRMLS_DC) {
+#else
+ZEND_DLEXPORT void ppya_execute_ex (zend_execute_data *execute_data TSRMLS_DC) {
+	zend_op_array *ops = execute_data->op_array;
+#endif
+	char          *func = NULL;
+	unsigned long exec_time=0;
+	
+	func = ppya_get_function_name(ops TSRMLS_CC);
+
+	if (!func) {
+#if PHP_VERSION_ID < 50500
+		PPYA_G(_zend_execute)(ops TSRMLS_CC);
+#else
+		PPYA_G(_zend_execute_ex)(execute_data TSRMLS_CC);
+#endif
+		return;
+	}
+
+	struct timeval start,end;
+
+	char * temp_buf = emalloc(10240);
+
+	gettimeofday(&start,NULL);
+
+#if PHP_VERSION_ID < 50500
+	PPYA_G(_zend_execute)(ops TSRMLS_CC);
+#else
+	PPYA_G(_zend_execute_ex)(execute_data TSRMLS_CC);
+#endif
+
+	gettimeofday(&end,NULL);
+
+	exec_time=(end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
+	PPYA_G(execute_time) += exec_time;
+
+	spprintf(&temp_buf,10240,"%s::%ld\n",func,exec_time);
+
+	efree(temp_buf);
+	efree(func);
+}
+

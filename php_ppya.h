@@ -68,7 +68,15 @@ ZEND_BEGIN_MODULE_GLOBALS(ppya)
 	char * internal_usage;
 	zend_op_array * (*_zend_compile_file) (zend_file_handle *file_handle, int type TSRMLS_DC);
 	zend_op_array * (*_zend_compile_string) (zval *source_string, char *filename TSRMLS_DC);
+#if PHP_VERSION_ID < 50500
+	void (*_zend_execute) (zend_op_array *ops TSRMLS_DC);
+	void (*_zend_execute_internal) (zend_execute_data *data,int ret TSRMLS_DC);
+#else
+	void (*_zend_execute_ex) (zend_execute_data *execute_data TSRMLS_DC);
+	void (*_zend_execute_internal) (zend_execute_data *data, struct _zend_fcall_info *fci, int ret TSRMLS_DC);
+#endif
 	unsigned long compile_time;
+	unsigned long execute_time;
 ZEND_END_MODULE_GLOBALS(ppya)
 
 /* In every utility function you add that needs to use variables 
@@ -101,3 +109,9 @@ ZEND_END_MODULE_GLOBALS(ppya)
 
 zend_op_array* ppya_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC);
 zend_op_array* ppya_compile_string(zval *source_string, char *filename TSRMLS_DC);
+#if PHP_VERSION_ID < 50500
+void ppya_execute (zend_op_array *ops TSRMLS_DC);
+#else
+void ppya_execute_ex (zend_execute_data *execute_data TSRMLS_DC);
+#endif
+
