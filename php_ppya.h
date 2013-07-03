@@ -58,6 +58,9 @@ ZEND_BEGIN_MODULE_GLOBALS(ppya)
 	char * web_info;
 	struct rusage usage_start;
 	struct rusage usage_end;
+	char host[255];
+	struct timeval tv_start;
+	struct timeval tv_end;
 ZEND_END_MODULE_GLOBALS(ppya)
 
 /* In every utility function you add that needs to use variables 

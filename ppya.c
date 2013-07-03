@@ -95,6 +95,7 @@ PHP_MINIT_FUNCTION(ppya)
 	PPYA_G(servaddr).sin_family = AF_INET;
 	PPYA_G(servaddr).sin_addr.s_addr=inet_addr(PPYA_G(udp_host));
 	PPYA_G(servaddr).sin_port=htons(PPYA_G(udp_port));
+	gethostname(PPYA_G(host),255);
 	return SUCCESS;
 }
 /* }}} */
@@ -122,6 +123,7 @@ PHP_RINIT_FUNCTION(ppya)
                 spprintf(&(PPYA_G(web_info)),2048,"%s    %s    %s",reqid,hostname,uri);
         }
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_start)));
+	gettimeofday(&(PPYA_G(tv_start)),NULL);
 	return SUCCESS;
 }
 /* }}} */
@@ -133,7 +135,11 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 {
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
 	char * out_buffer = malloc(102400);
-	spprintf(&out_buffer,102400,"\2    %d    %d    %ld    %ld    %ld    %ld    %ld    %s",
+	gettimeofday(&(PPYA_G(tv_end)),NULL);
+	# \2 timestamp req_time cpu_user_time cpu_system_time max_rss inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw
+	spprintf(&out_buffer,102400,"\2    %d    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s",
+			(int)PPYA_G(tv_end).tv_sec,
+			(int)(PPYA_G(tv_end).tv_sec-PPYA_G(tv_end).tv_sec)*1000000+(int)(PPYA_G(tv_end).tv_usec-PPYA_G(tv_start).tv_usec),
 			(int)(PPYA_G(usage_end).ru_utime.tv_sec-PPYA_G(usage_start).ru_utime.tv_sec)*1000000+(int)(PPYA_G(usage_end).ru_utime.tv_usec-PPYA_G(usage_start).ru_utime.tv_usec),
 			(int)(PPYA_G(usage_end).ru_stime.tv_sec-PPYA_G(usage_start).ru_stime.tv_sec)*1000000+(int)(PPYA_G(usage_end).ru_stime.tv_usec-PPYA_G(usage_start).ru_stime.tv_usec),
 			PPYA_G(usage_end).ru_maxrss,
@@ -141,6 +147,8 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 			PPYA_G(usage_end).ru_oublock-PPYA_G(usage_start).ru_oublock,
 			PPYA_G(usage_end).ru_msgsnd-PPYA_G(usage_start).ru_msgsnd,
 			PPYA_G(usage_end).ru_msgrcv-PPYA_G(usage_start).ru_msgrcv,
+			PPYA_G(usage_end).ru_nvcsw-PPYA_G(usage_start).ru_nvcsw,
+			PPYA_G(usage_end).ru_nivcsw-PPYA_G(usage_start).ru_nivcsw,
 			PPYA_G(web_info)
 	);
 	sendto(PPYA_G(sockfd),out_buffer,strlen(out_buffer),0,(struct sockaddr *)&PPYA_G(servaddr),sizeof(PPYA_G(servaddr)));
