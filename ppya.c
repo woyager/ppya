@@ -138,14 +138,16 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
 	char * out_buffer = malloc(10240000);
 	gettimeofday(&(PPYA_G(tv_end)),NULL);
-	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw compile_time web_info internal_usage
-	spprintf(&out_buffer,10240000,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s\n%s",
+	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss zend_memory zend_peak inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw compile_time web_info internal_usage
+	spprintf(&out_buffer,10240000,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s\n%s",
 			(int)PPYA_G(tv_end).tv_sec,
 			PPYA_G(host),
 			(int)(PPYA_G(tv_end).tv_sec-PPYA_G(tv_start).tv_sec)*1000000+(int)(PPYA_G(tv_end).tv_usec-PPYA_G(tv_start).tv_usec),
 			(int)(PPYA_G(usage_end).ru_utime.tv_sec-PPYA_G(usage_start).ru_utime.tv_sec)*1000000+(int)(PPYA_G(usage_end).ru_utime.tv_usec-PPYA_G(usage_start).ru_utime.tv_usec),
 			(int)(PPYA_G(usage_end).ru_stime.tv_sec-PPYA_G(usage_start).ru_stime.tv_sec)*1000000+(int)(PPYA_G(usage_end).ru_stime.tv_usec-PPYA_G(usage_start).ru_stime.tv_usec),
 			PPYA_G(usage_end).ru_maxrss,
+			zend_memory_usage(0 TSRMLS_CC),
+			zend_memory_peak_usage(0 TSRMLS_CC),
 			PPYA_G(usage_end).ru_inblock-PPYA_G(usage_start).ru_inblock,
 			PPYA_G(usage_end).ru_oublock-PPYA_G(usage_start).ru_oublock,
 			PPYA_G(usage_end).ru_msgsnd-PPYA_G(usage_start).ru_msgsnd,
