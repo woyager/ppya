@@ -103,7 +103,9 @@ PHP_MINIT_FUNCTION(ppya)
 	PPYA_G(_zend_execute_ex) = zend_execute_ex;
 	zend_execute_ex  = ppya_execute_ex;
 #endif
-	PPYA_G(_zend_execute_internal) = zend_execute_internal;
+//	PPYA_G(_zend_execute_internal) = zend_execute_internal;
+//	zend_execute_internal=ppya_execute_internal;
+	PPYA_G(cpu_num)=sysconf(_SC_NPROCESSORS_CONF);
 	return SUCCESS;
 }
 /* }}} */
@@ -146,7 +148,7 @@ PHP_RINIT_FUNCTION(ppya)
 PHP_RSHUTDOWN_FUNCTION(ppya)
 {
 	getrusage(RUSAGE_SELF,&(PPYA_G(usage_end)));
-	char * out_buffer = malloc(10240000);
+	char * out_buffer = emalloc(10240000);
 	gettimeofday(&(PPYA_G(tv_end)),NULL);
 	// \2 timestamp host req_time cpu_user_time cpu_system_time max_rss zend_memory zend_peak inblock outblock msgsnd msgrcv ru_nvcsw ru_nivcsw compile_time execute_time web_info internal_usage
 	spprintf(&out_buffer,10240000,"\2    %d    %s    %d    %d    %d    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %ld    %s\n%s",
@@ -172,6 +174,7 @@ PHP_RSHUTDOWN_FUNCTION(ppya)
 	sendto(PPYA_G(sockfd),out_buffer,strlen(out_buffer),0,(struct sockaddr *)&PPYA_G(servaddr),sizeof(PPYA_G(servaddr)));
 	efree(PPYA_G(web_info));
 	efree(PPYA_G(internal_usage));
+	efree(out_buffer);
 	return SUCCESS;
 }
 /* }}} */
@@ -480,8 +483,10 @@ ZEND_DLEXPORT void ppya_execute_internal(zend_execute_data *execute_data, struct
 		exec_time=(end.tv_sec-start.tv_sec)*1000000+(end.tv_usec-start.tv_usec);
 		spprintf(&temp_buf,10240,"%s::%ld\n",func,exec_time);
 		internal_concat(temp_buf);
+//		internal_concat("test");
 		efree(temp_buf);
 	}
+
 	efree(func);
 
 }

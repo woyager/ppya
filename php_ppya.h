@@ -23,6 +23,7 @@
 #include <netinet/in.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <unistd.h>
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
@@ -77,6 +78,7 @@ ZEND_BEGIN_MODULE_GLOBALS(ppya)
 #endif
 	unsigned long compile_time;
 	unsigned long execute_time;
+	int	cpu_num;
 ZEND_END_MODULE_GLOBALS(ppya)
 
 /* In every utility function you add that needs to use variables 
